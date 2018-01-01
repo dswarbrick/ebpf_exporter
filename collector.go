@@ -174,6 +174,7 @@ func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.reqSize
 }
 
+// newBioStats returns a pointer to a bioStats struct with maps pre-initialized
 func newBioStats() *bioStats {
 	return &bioStats{
 		make(map[float64]uint64),
