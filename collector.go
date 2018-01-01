@@ -28,25 +28,38 @@ import (
 )
 
 type bioStats struct {
-	readLat  map[float64]uint64
-	writeLat map[float64]uint64
+	readLat    map[float64]uint64
+	writeLat   map[float64]uint64
+	readReqSz  map[float64]uint64
+	writeReqSz map[float64]uint64
 }
 
 type exporter struct {
-	bpfMod   *bcc.Module
-	readLat  *bcc.Table
-	writeLat *bcc.Table
-	latency  *prometheus.Desc
+	bpfMod     *bcc.Module
+	readLat    *bcc.Table
+	writeLat   *bcc.Table
+	readReqSz  *bcc.Table
+	writeReqSz *bcc.Table
+	latency    *prometheus.Desc
+	reqSize    *prometheus.Desc
 }
 
 func newExporter(m *bcc.Module) *exporter {
 	e := exporter{
-		bpfMod:   m,
-		readLat:  bcc.NewTable(m.TableId("read_lat"), m),
-		writeLat: bcc.NewTable(m.TableId("write_lat"), m),
+		bpfMod:     m,
+		readLat:    bcc.NewTable(m.TableId("read_lat"), m),
+		writeLat:   bcc.NewTable(m.TableId("write_lat"), m),
+		readReqSz:  bcc.NewTable(m.TableId("read_req_sz"), m),
+		writeReqSz: bcc.NewTable(m.TableId("write_req_sz"), m),
 		latency: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bio", "req_latency"),
 			"A histogram of bio request latencies in microseconds.",
+			[]string{"device", "operation"},
+			nil,
+		),
+		reqSize: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "bio", "req_size"),
+			"A histogram of bio request sizes in KiB.",
 			[]string{"device", "operation"},
 			nil,
 		),
@@ -63,8 +76,8 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 
 		stats, ok := devStats[devName]
 		if !ok {
-			// First time seeing this device, initialize new latency map
-			stats = bioStats{make(map[float64]uint64), make(map[float64]uint64)}
+			// First time seeing this device, initialize new bioStats struct / maps
+			stats = newBioStats()
 			devStats[devName] = stats
 		}
 
@@ -81,8 +94,8 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 
 		stats, ok := devStats[devName]
 		if !ok {
-			// First time seeing this device, initialize new latency map
-			stats = bioStats{make(map[float64]uint64), make(map[float64]uint64)}
+			// First time seeing this device, initialize new bioStats struct / maps
+			stats = newBioStats()
 			devStats[devName] = stats
 		}
 
@@ -93,9 +106,45 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
+	// FIXME: Eliminate duplicated code
+	for entry := range e.readReqSz.Iter() {
+		devName, bucket := parseKey(entry.Key)
+
+		stats, ok := devStats[devName]
+		if !ok {
+			// First time seeing this device, initialize new bioStats struct / maps
+			stats = newBioStats()
+			devStats[devName] = stats
+		}
+
+		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+			if value > 0 {
+				stats.readReqSz[math.Exp2(float64(bucket))] = value
+			}
+		}
+	}
+
+	// FIXME: Eliminate duplicated code
+	for entry := range e.writeReqSz.Iter() {
+		devName, bucket := parseKey(entry.Key)
+
+		stats, ok := devStats[devName]
+		if !ok {
+			// First time seeing this device, initialize new bioStats struct / maps
+			stats = newBioStats()
+			devStats[devName] = stats
+		}
+
+		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+			if value > 0 {
+				stats.writeReqSz[math.Exp2(float64(bucket))] = value
+			}
+		}
+	}
+
 	// Walk devStats map and emit metrics to channel
 	for devName, stats := range devStats {
-		emit := func(buckets map[float64]uint64, reqOp string) {
+		emit := func(hist *prometheus.Desc, buckets map[float64]uint64, reqOp string) {
 			var sampleCount uint64
 			var sampleSum float64
 
@@ -104,7 +153,7 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 				sampleCount += v
 			}
 
-			ch <- prometheus.MustNewConstHistogram(e.latency,
+			ch <- prometheus.MustNewConstHistogram(hist,
 				sampleCount,
 				sampleSum,
 				buckets,
@@ -112,13 +161,26 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 			)
 		}
 
-		emit(stats.readLat, "read")
-		emit(stats.writeLat, "write")
+		emit(e.latency, stats.readLat, "read")
+		emit(e.latency, stats.writeLat, "write")
+
+		emit(e.reqSize, stats.readReqSz, "read")
+		emit(e.reqSize, stats.writeReqSz, "write")
 	}
 }
 
 func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.latency
+	ch <- e.reqSize
+}
+
+func newBioStats() bioStats {
+	return bioStats{
+		make(map[float64]uint64),
+		make(map[float64]uint64),
+		make(map[float64]uint64),
+		make(map[float64]uint64),
+	}
 }
 
 // parseKey parses a BPF hash key as created by the BPF program
