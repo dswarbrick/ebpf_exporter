@@ -70,3 +70,14 @@ ebpf_bio_req_size_count{device="sda",operation="write"} 1690
 Note that immediately after starting the exporter, not all bucket sizes will be shown. As soon as a
 request latency / size occurs which would land in a specific bucket, that bucket will appear in the
 output. The application used to graph the data should be able to handle non-contiguous buckets.
+
+## Grafana Panel Samples
+
+Grafana does not currently support Prometheus data sources properly for heatmaps, which is the
+ultimate goal of this exporter. Support for the feature is expected to land in Grafana 5.0 (see
+https://github.com/grafana/grafana/issues/10009). In the meantime, it is possible to create stacked
+bar charts which show a breakdown request latency / size over time:
+
+![IO request latency](img/disk-io-request-latency.png)
+
+![IO request size](img/disk-io-request-size.png)
