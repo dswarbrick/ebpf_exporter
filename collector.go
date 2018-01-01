@@ -69,7 +69,7 @@ func newExporter(m *bcc.Module) *exporter {
 }
 
 func (e *exporter) Collect(ch chan<- prometheus.Metric) {
-	devStats := make(map[string]bioStats)
+	devStats := make(map[string]*bioStats)
 
 	for entry := range e.readLat.Iter() {
 		devName, bucket := parseKey(entry.Key)
@@ -174,8 +174,8 @@ func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.reqSize
 }
 
-func newBioStats() bioStats {
-	return bioStats{
+func newBioStats() *bioStats {
+	return &bioStats{
 		make(map[float64]uint64),
 		make(map[float64]uint64),
 		make(map[float64]uint64),
