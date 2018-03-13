@@ -74,8 +74,8 @@ output. The application used to graph the data should be able to handle non-cont
 ## Grafana Panel Samples
 
 Grafana does not currently support Prometheus data sources properly for heatmaps, which is the
-ultimate goal of this exporter. Support for the feature is expected to land in Grafana 5.0 (see
-https://github.com/grafana/grafana/issues/10009). In the meantime, it is possible to create stacked
+ultimate goal of this exporter. Support for the Prometheus heatmaps will land in Grafana 5.1 (see
+https://github.com/grafana/grafana/pull/11087). In the meantime, it is possible to create stacked
 bar charts which show a breakdown of request latency / size over time:
 
 ![IO request latency](img/disk-io-request-latency.png)
