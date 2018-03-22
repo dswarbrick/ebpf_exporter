@@ -19,6 +19,7 @@ package main
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -153,10 +154,23 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 				sampleCount += v
 			}
 
+			// Cumulative summing
+			var sum uint64
+			var bucketKeys []float64
+			for k := range buckets {
+				bucketKeys = append(bucketKeys, k)
+			}
+			cumulativeBuckets := make(map[float64]uint64)
+			sort.Float64s(bucketKeys)
+			for _, k := range bucketKeys {
+				cumulativeBuckets[k] = sum + buckets[k]
+				sum = sum + buckets[k]
+			}
+
 			ch <- prometheus.MustNewConstHistogram(hist,
 				sampleCount,
 				sampleSum,
-				buckets,
+				cumulativeBuckets,
 				devName, reqOp,
 			)
 		}
