@@ -69,20 +69,30 @@ func newExporter(m *bcc.Module) *exporter {
 func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 	emit := func(hist *prometheus.Desc, devBuckets map[string][]uint64, reqOp string) {
 		for devName, bpfBuckets := range devBuckets {
-			var count uint64
+			var (
+				count uint64
+				sum   float64
+			)
 
 			promBuckets := make(map[float64]uint64)
 
-			// Prometheus histograms are cumulative, so count must be a running total of previous
-			// buckets also.
 			for k, v := range bpfBuckets {
+				// Prometheus histograms are cumulative, so count must be a running total of
+				// previous buckets also.
 				count += v
-				promBuckets[math.Exp2(float64(k))] = count
+
+				// Sum will not be completely accurate, since the BPF program already discarded
+				// some resolution when storing occurrences of values in log2 buckets. Count and
+				// sum are required however to calculate an average from a histogram.
+				exp2 := math.Exp2(float64(k))
+				sum += exp2 * float64(v)
+
+				promBuckets[exp2] = count
 			}
 
 			ch <- prometheus.MustNewConstHistogram(hist,
 				count,
-				0, // FIXME: sum
+				sum,
 				promBuckets,
 				devName, reqOp,
 			)
