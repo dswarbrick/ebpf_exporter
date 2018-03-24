@@ -67,9 +67,9 @@ ebpf_bio_req_size_sum{device="sda",operation="write"} 130524
 ebpf_bio_req_size_count{device="sda",operation="write"} 1690
 ```
 
-Note that immediately after starting the exporter, not all bucket sizes will be shown. As soon as a
-request latency / size occurs which would land in a specific bucket, that bucket will appear in the
-output. The application used to graph the data should be able to handle non-contiguous buckets.
+Note that histograms will only be exposed for devices that have actually performed IO since the BPF
+program was loaded. If a device is only performing writes, no histogram will be present for reads,
+and vice versa.
 
 ## Grafana Panel Samples
 
