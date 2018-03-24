@@ -13,10 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// NOTE: This BPF program currently causes gobpf's Module.load() function to
-// fail with an ENOSPC error, due to a too small logbuf slice. See
-// https://github.com/iovisor/gobpf/issues/103
-
 package main
 
 const bpfSource string = `
