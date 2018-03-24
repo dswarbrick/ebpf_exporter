@@ -27,12 +27,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type bioStats struct {
-	readLat    [32]uint64 // Must match size of read_lat table in BPF program
-	writeLat   [32]uint64 // Must match size of write_lat table in BPF program
-	readReqSz  [16]uint64 // Must match size of read_req_sz table in BPF program
-	writeReqSz [16]uint64 // Must match size of write_req_sz table in BPF program
-}
+const (
+	latTableLen   = 32 // Must match size of read_lat / write_lat tables in BPF program
+	reqSzTableLen = 16 // Must match size of read_req_sz / write_req_sz tables in BPF program
+)
 
 type exporter struct {
 	bpfMod     *bcc.Module
@@ -69,77 +67,8 @@ func newExporter(m *bcc.Module) *exporter {
 }
 
 func (e *exporter) Collect(ch chan<- prometheus.Metric) {
-	devStats := make(map[string]*bioStats)
-
-	// Table.Iter() returns unsorted entries, so write the decoded values into an array in the
-	// correct order.
-	for entry := range e.readLat.Iter() {
-		devName, bucket := parseKey(entry.Key)
-
-		stats, ok := devStats[devName]
-		if !ok {
-			// First time seeing this device, initialize new bioStats struct / maps
-			stats = new(bioStats)
-			devStats[devName] = stats
-		}
-
-		// entry.Value is a hexadecimal string, e.g., 0x1f3
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			stats.readLat[bucket] = value
-		}
-	}
-
-	// FIXME: Eliminate duplicated code
-	for entry := range e.writeLat.Iter() {
-		devName, bucket := parseKey(entry.Key)
-
-		stats, ok := devStats[devName]
-		if !ok {
-			// First time seeing this device, initialize new bioStats struct / maps
-			stats = new(bioStats)
-			devStats[devName] = stats
-		}
-
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			stats.writeLat[bucket] = value
-		}
-	}
-
-	// FIXME: Eliminate duplicated code
-	for entry := range e.readReqSz.Iter() {
-		devName, bucket := parseKey(entry.Key)
-
-		stats, ok := devStats[devName]
-		if !ok {
-			// First time seeing this device, initialize new bioStats struct / maps
-			stats = new(bioStats)
-			devStats[devName] = stats
-		}
-
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			stats.readReqSz[bucket] = value
-		}
-	}
-
-	// FIXME: Eliminate duplicated code
-	for entry := range e.writeReqSz.Iter() {
-		devName, bucket := parseKey(entry.Key)
-
-		stats, ok := devStats[devName]
-		if !ok {
-			// First time seeing this device, initialize new bioStats struct / maps
-			stats = new(bioStats)
-			devStats[devName] = stats
-		}
-
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			stats.writeReqSz[bucket] = value
-		}
-	}
-
-	// Walk devStats map and emit metrics to channel
-	for devName, stats := range devStats {
-		emit := func(hist *prometheus.Desc, bpfBuckets []uint64, reqOp string) {
+	emit := func(hist *prometheus.Desc, devBuckets map[string][]uint64, reqOp string) {
+		for devName, bpfBuckets := range devBuckets {
 			var count uint64
 
 			promBuckets := make(map[float64]uint64)
@@ -153,18 +82,18 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 
 			ch <- prometheus.MustNewConstHistogram(hist,
 				count,
-				0,   // FIXME: sum
+				0, // FIXME: sum
 				promBuckets,
 				devName, reqOp,
 			)
 		}
-
-		emit(e.latency, stats.readLat[:], "read")
-		emit(e.latency, stats.writeLat[:], "write")
-
-		emit(e.reqSize, stats.readReqSz[:], "read")
-		emit(e.reqSize, stats.writeReqSz[:], "write")
 	}
+
+	emit(e.latency, decodeTable(e.readLat, latTableLen), "read")
+	emit(e.latency, decodeTable(e.writeLat, latTableLen), "write")
+
+	emit(e.reqSize, decodeTable(e.readReqSz, reqSzTableLen), "read")
+	emit(e.reqSize, decodeTable(e.writeReqSz, reqSzTableLen), "write")
 }
 
 func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -179,4 +108,27 @@ func parseKey(s string) (string, uint64) {
 	label := strings.Trim(fields[0], "\"")
 	bucket, _ := strconv.ParseUint(fields[1], 0, 64)
 	return label, bucket
+}
+
+// decodeTable decodes a BPF table and returns a per-device map of values as ordered buckets.
+func decodeTable(table *bcc.Table, tableSize uint) map[string][]uint64 {
+	devBuckets := make(map[string][]uint64)
+
+	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
+	// preserving slice.
+	for entry := range table.Iter() {
+		devName, bucket := parseKey(entry.Key)
+
+		// First time seeing this device, create slice for buckets
+		if _, ok := devBuckets[devName]; !ok {
+			devBuckets[devName] = make([]uint64, tableSize)
+		}
+
+		// entry.Value is a hexadecimal string, e.g., 0x1f3
+		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+			devBuckets[devName][bucket] = value
+		}
+	}
+
+	return devBuckets
 }
