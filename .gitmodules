@@ -1,0 +1,3 @@
+[submodule "vendor/github.com/iovisor/gobpf"]
+	path = vendor/github.com/iovisor/gobpf
+	url = https://github.com/iovisor/gobpf.git
