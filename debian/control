@@ -1,0 +1,26 @@
+Source: ebpf-exporter
+Section: net
+Priority: optional
+Maintainer: Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>
+Build-Depends: debhelper (>=9),
+               dh-golang (>=1.9),
+               dh-systemd,
+               golang-go,
+               golang-github-go-kit-kit-dev,
+               golang-github-prometheus-client-golang-dev,
+               golang-github-prometheus-client-model-dev,
+               golang-github-prometheus-common-dev (>= 0+git20171117),
+               golang-gopkg-alecthomas-kingpin.v2-dev
+Standards-Version: 3.9.8
+Homepage: https://github.com/dswarbrick/ebpf_exporter
+Vcs-Browser: https://github.com/dswarbrick/ebpf_exporter
+Vcs-Git: git@github.com:dswarbrick/ebpf_exporter.git
+
+Package: ebpf-exporter
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Built-Using: ${misc:Built-Using}
+Description: Prometheus exporter which uses eBPF kprobes
+ ebpf_exporter is an experimental Prometheus exporter which uses eBPF kprobes
+ to efficiently record a histogram of Linux bio request latencies and sizes.

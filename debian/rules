@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+#export DH_VERBOSE := 1
+export DH_GOPKG := github.com/dswarbrick/ebpf_exporter
+
+%:
+	dh $@ --buildsystem=golang --with=golang,systemd --builddirectory=_build
+
+override_dh_auto_install:
+	dh_auto_install -- --no-source

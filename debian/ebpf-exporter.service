@@ -1,0 +1,10 @@
+[Unit]
+Description=ebpf-exporter is a Prometheus exporter which uses eBPF kprobes
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/ebpf-exporter
+
+[Install]
+WantedBy=multi-user.target
+Alias=ebpf-exporter.service
