@@ -1,5 +1,5 @@
-ebpf-exporter (0.0.1) UNRELEASED; urgency=low
+prometheus-ebpf-exporter (0.0.1) UNRELEASED; urgency=low
 
-  * Initial version
+  * Initial packaged version
 
- -- Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>  Fri, 25 May 2018 16:22:31 +0200
+ -- Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>  Wed, 13 Jun 2018 16:52:34 +0200

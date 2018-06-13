@@ -1,4 +1,4 @@
-Source: ebpf-exporter
+Source: prometheus-ebpf-exporter
 Section: net
 Priority: optional
 Maintainer: Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>
@@ -17,7 +17,7 @@ Homepage: https://github.com/dswarbrick/ebpf_exporter
 Vcs-Browser: https://github.com/dswarbrick/ebpf_exporter
 Vcs-Git: git@github.com:dswarbrick/ebpf_exporter.git
 
-Package: ebpf-exporter
+Package: prometheus-ebpf-exporter
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
