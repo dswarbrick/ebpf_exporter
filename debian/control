@@ -1,9 +1,9 @@
 Source: prometheus-ebpf-exporter
 Section: net
 Priority: optional
-Maintainer: Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>
-Build-Depends: debhelper (>=9),
-               dh-golang (>=1.9),
+Maintainer: Daniel Swarbrick <dswarbrick@users.noreply.github.com>
+Build-Depends: debhelper (>=10),
+               dh-golang,
                dh-systemd,
                golang-go,
                golang-github-go-kit-kit-dev,
@@ -12,7 +12,7 @@ Build-Depends: debhelper (>=9),
                golang-github-prometheus-common-dev (>= 0+git20171117),
                golang-gopkg-alecthomas-kingpin.v2-dev,
                libbpfcc-dev
-Standards-Version: 3.9.8
+Standards-Version: 4.1.2
 Homepage: https://github.com/dswarbrick/ebpf_exporter
 Vcs-Browser: https://github.com/dswarbrick/ebpf_exporter
 Vcs-Git: git@github.com:dswarbrick/ebpf_exporter.git

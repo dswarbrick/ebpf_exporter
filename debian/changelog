@@ -2,4 +2,4 @@ prometheus-ebpf-exporter (0.0.1) UNRELEASED; urgency=low
 
   * Initial packaged version
 
- -- Daniel Swarbrick <1667905+dswarbrick@users.noreply.github.com>  Wed, 13 Jun 2018 16:52:34 +0200
+ -- Daniel Swarbrick <dswarbrick@users.noreply.github.com>  Wed, 13 Jun 2018 16:52:34 +0200
