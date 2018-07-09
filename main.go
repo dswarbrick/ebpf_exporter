@@ -55,29 +55,23 @@ func main() {
 	m := bcc.NewModule(bpfSource, []string{})
 	defer m.Close()
 
-	// Load and attach kprobes
-	startKprobe, err := m.LoadKprobe("trace_req_start")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load trace_req_start: %s\n", err)
-		os.Exit(1)
+	// Map of kprobe names from our BPF program to kernel function names, to which to attach.
+	kprobes := map[string]string {
+		"trace_req_start": "blk_account_io_start",
+		"trace_req_completion": "blk_account_io_completion",
 	}
 
-	err = m.AttachKprobe("blk_account_io_start", startKprobe)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to attach trace_req_start: %s\n", err)
-		os.Exit(1)
-	}
-
-	endKprobe, err := m.LoadKprobe("trace_req_completion")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load trace_req_completion: %s\n", err)
-		os.Exit(1)
-	}
-
-	err = m.AttachKprobe("blk_account_io_completion", endKprobe)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to attach trace_req_completion: %s\n", err)
-		os.Exit(1)
+	// Load kprobes and attach them to kernel functions
+	for kpName, fnName := range kprobes {
+		if kp, err := m.LoadKprobe(kpName); err == nil {
+			if err := m.AttachKprobe(fnName, kp); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to attach %q to %q: %s\n", kpName, fnName, err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Failed to load %q: %s\n", kpName, err)
+			os.Exit(1)
+		}
 	}
 
 	prometheus.MustRegister(newExporter(m))
