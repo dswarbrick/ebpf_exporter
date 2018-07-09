@@ -170,7 +170,6 @@ func decodeTable(table *bcc.Table, tableSize uint) map[string]map[uint8][]uint64
 
 		// entry.Value is a hexadecimal string, e.g., 0x1f3
 		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			// FIXME? Possibly hitting "index out of range" if bucket > (tableSize - 1)
 			devBuckets[devName][op][bucket] = value
 		}
 	}

@@ -26,14 +26,14 @@ typedef struct disk_key {
 	u64 slot;
 } disk_key_t;
 
+const u8 max_io_lat_slot = 28;		// log2 range 1 us to ~2 mins
+const u8 max_io_req_sz_slot = 16;	// log2 range 1 KiB to 32 MiB
+
 // Hash to temporily hold the start time of each bio request
 BPF_HASH(start, struct request *);
 
-// Histogram to record IO request latencies (log2 range 1 us to ~2 mins)
-BPF_HISTOGRAM(io_lat, disk_key_t, 28);
-
-// Histogram to record IO request sizes (log2 range 1 KiB to 32 MiB)
-BPF_HISTOGRAM(io_req_sz, disk_key_t, 16);
+BPF_HISTOGRAM(io_lat, disk_key_t, max_io_lat_slot);
+BPF_HISTOGRAM(io_req_sz, disk_key_t, max_io_req_sz_slot);
 
 // Record start time of a request
 int trace_req_start(struct pt_regs *ctx, struct request *req)
@@ -46,7 +46,7 @@ int trace_req_start(struct pt_regs *ctx, struct request *req)
 // Calculate request duration and store in appropriate histogram bucket
 int trace_req_completion(struct pt_regs *ctx, struct request *req, unsigned int bytes)
 {
-	u64 *tsp, delta;
+	u64 *tsp, delta, slot;
 	u8 req_op;
 
 	// Fetch timestamp and calculate delta
@@ -54,20 +54,25 @@ int trace_req_completion(struct pt_regs *ctx, struct request *req, unsigned int 
 	if (tsp == 0) {
 		return 0;   // missed issue
 	}
-	delta = bpf_ktime_get_ns() - *tsp;
 
-	// Convert to microseconds
-	delta /= 1000;
+	// Request duration, in microseconds
+	delta = (bpf_ktime_get_ns() - *tsp) / 1000;
 
 	// Request operation, e.g. REQ_OP_READ, REQ_OP_WRITE, etc.
 	req_op = req->cmd_flags & REQ_OP_MASK;
 
 	// Latency histogram key
-	disk_key_t lat_key = {.slot = bpf_log2l(delta), .req_op = req_op};
+	slot = bpf_log2l(delta);
+	if (slot >= max_io_lat_slot)
+		slot = max_io_lat_slot - 1;
+	disk_key_t lat_key = {.slot = slot, .req_op = req_op};
 	bpf_probe_read(&lat_key.disk, sizeof(lat_key.disk), req->rq_disk->disk_name);
 
 	// Request size histogram key
-	disk_key_t req_sz_key = {.slot = bpf_log2(bytes / 1024), .req_op = req_op};
+	slot = bpf_log2(bytes / 1024);
+	if (slot >= max_io_req_sz_slot)
+		slot = max_io_req_sz_slot - 1;
+	disk_key_t req_sz_key = {.slot = slot, .req_op = req_op};
 	bpf_probe_read(&req_sz_key.disk, sizeof(req_sz_key.disk), req->rq_disk->disk_name);
 
 	io_lat.increment(lat_key);

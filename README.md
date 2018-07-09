@@ -40,10 +40,6 @@ ebpf_bio_req_latency_bucket{device="sda",operation="write",le="1.6777216e+07"} 3
 ebpf_bio_req_latency_bucket{device="sda",operation="write",le="3.3554432e+07"} 3780
 ebpf_bio_req_latency_bucket{device="sda",operation="write",le="6.7108864e+07"} 3780
 ebpf_bio_req_latency_bucket{device="sda",operation="write",le="1.34217728e+08"} 3780
-ebpf_bio_req_latency_bucket{device="sda",operation="write",le="2.68435456e+08"} 3780
-ebpf_bio_req_latency_bucket{device="sda",operation="write",le="5.36870912e+08"} 3780
-ebpf_bio_req_latency_bucket{device="sda",operation="write",le="1.073741824e+09"} 3780
-ebpf_bio_req_latency_bucket{device="sda",operation="write",le="2.147483648e+09"} 3780
 ebpf_bio_req_latency_bucket{device="sda",operation="write",le="+Inf"} 3780
 ebpf_bio_req_latency_sum{device="sda",operation="write"} 1.4306176e+07
 ebpf_bio_req_latency_count{device="sda",operation="write"} 3780
