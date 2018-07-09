@@ -21,19 +21,29 @@ const bpfSource string = `
 #include <linux/blk_types.h>
 
 typedef struct disk_key {
-	char disk[DISK_NAME_LEN];
+	char disk[DISK_NAME_LEN];		// 32 bytes
 	u8 req_op;
 	u64 slot;
-} disk_key_t;
+} disk_key_t;						// 48 bytes, with padding
 
 const u8 max_io_lat_slot = 28;		// log2 range 1 us to ~2 mins
 const u8 max_io_req_sz_slot = 16;	// log2 range 1 KiB to 32 MiB
 
-// Hash to temporily hold the start time of each bio request
+// Hash to temporily hold the start time of each bio request - macro for
+// BPF_TABLE("hash", _key_type, u64, _name, 10240). Increase if you expect
+// more than 10K IO requests in flight.
 BPF_HASH(start, struct request *);
 
-BPF_HISTOGRAM(io_lat, disk_key_t, max_io_lat_slot);
-BPF_HISTOGRAM(io_req_sz, disk_key_t, max_io_req_sz_slot);
+// Histograms to hold IO request latency / size bucket values - macro for
+// BPF_TABLE("histogram", _key_type, u64, _name, _size). Total number of
+// buckets are shared amongst all devices and all request operation types.
+// Unlike Prometheus histograms, these are sparse, so will only use a bucket
+// if required. Since most request operations will be read or write, a good
+// rule of thumb is: num_devices * 2 req_op types * 20 buckets each. Bear in
+// mind that the amount of memory used will be (sizeof(_key_type) +
+// sizeof(u64)) * _size, so the following will use 560 KiB each.
+BPF_HISTOGRAM(io_lat, disk_key_t, 10240);
+BPF_HISTOGRAM(io_req_sz, disk_key_t, 10240);
 
 // Record start time of a request
 int trace_req_start(struct pt_regs *ctx, struct request *req)

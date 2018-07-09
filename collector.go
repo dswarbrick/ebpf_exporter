@@ -130,6 +130,7 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
+	// TODO: Expose table entry count as a Prometheus metric.
 	emit(e.latency, decodeTable(e.ioLat, latTableLen))
 	emit(e.reqSize, decodeTable(e.ioReqSz, reqSzTableLen))
 }
