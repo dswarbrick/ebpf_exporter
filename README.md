@@ -3,11 +3,14 @@
 ebpf_exporter is an experimental Prometheus exporter which uses eBPF kprobes to efficiently record
 a histogram of Linux bio request latencies and sizes.
 
+The included BPF program is loosely based on the examples shipped with [IO Visor's BPF Compiler
+Collection](https://github.com/iovisor/bcc), specifically the bitehist and disksnoop examples.
+
 ## Sample Output
 
-Linux bio request latencies for each block device are recorded in log2 buckets separately for read
-and write, in microseconds. This should cover use cases ranging from high speed flash-based
-devices, to legacy HDD devices.
+Linux bio request latencies for each block device are recorded in log2 buckets separately for each
+request operation type (read, write, flush, discard, etc), in microseconds. This should cover use
+cases ranging from high speed flash-based devices, to legacy HDD devices.
 
 ```
 # HELP ebpf_bio_req_latency A histogram of bio request latencies in microseconds.
@@ -77,10 +80,8 @@ and vice versa.
 
 ## Grafana Panel Samples
 
-Grafana does not currently support Prometheus data sources properly for heatmaps, which is the
-ultimate goal of this exporter. Support for the Prometheus heatmaps will land in Grafana 5.1 (see
-https://github.com/grafana/grafana/pull/11087). In the meantime, it is possible to create stacked
-bar charts which show a breakdown of request latency / size over time:
+Grafana 5.1 and later supports Prometheus histograms, either as bar / line / point graphs, or as
+heatmaps.
 
 ![IO request latency](img/disk-io-request-latency.png)
 
