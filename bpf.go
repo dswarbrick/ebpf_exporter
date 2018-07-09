@@ -29,10 +29,10 @@ typedef struct disk_key {
 // Hash to temporily hold the start time of each bio request
 BPF_HASH(start, struct request *);
 
-// Histogram to record IO request latencies
+// Histogram to record IO request latencies (log2 range 1 us to ~2 mins)
 BPF_HISTOGRAM(io_lat, disk_key_t, 28);
 
-// Histogram to record IO request sizes
+// Histogram to record IO request sizes (log2 range 1 KiB to 32 MiB)
 BPF_HISTOGRAM(io_req_sz, disk_key_t, 16);
 
 // Record start time of a request
