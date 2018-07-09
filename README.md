@@ -81,8 +81,9 @@ and vice versa.
 ## Grafana Panel Samples
 
 Grafana 5.1 and later supports Prometheus histograms, either as bar / line / point graphs, or as
-heatmaps.
+heatmaps. See Grafana's [heatmap panel](http://docs.grafana.org/features/panels/heatmap/) guide for
+more information.
 
-![IO request latency](img/disk-io-request-latency.png)
+![IO request latency histogram](img/io-req-latency-hist.png)
 
-![IO request size](img/disk-io-request-size.png)
+![IO request latency heatmap](img/io-req-latency-heatmap.png)
