@@ -18,6 +18,7 @@
 package main
 
 import (
+	_ "fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -33,22 +34,18 @@ const (
 )
 
 type exporter struct {
-	bpfMod     *bcc.Module
-	readLat    *bcc.Table
-	writeLat   *bcc.Table
-	readReqSz  *bcc.Table
-	writeReqSz *bcc.Table
-	latency    *prometheus.Desc
-	reqSize    *prometheus.Desc
+	bpfMod  *bcc.Module
+	ioLat   *bcc.Table
+	ioReqSz *bcc.Table
+	latency *prometheus.Desc
+	reqSize *prometheus.Desc
 }
 
 func newExporter(m *bcc.Module) *exporter {
 	e := exporter{
-		bpfMod:     m,
-		readLat:    bcc.NewTable(m.TableId("read_lat"), m),
-		writeLat:   bcc.NewTable(m.TableId("write_lat"), m),
-		readReqSz:  bcc.NewTable(m.TableId("read_req_sz"), m),
-		writeReqSz: bcc.NewTable(m.TableId("write_req_sz"), m),
+		bpfMod:  m,
+		ioLat:   bcc.NewTable(m.TableId("io_lat"), m),
+		ioReqSz: bcc.NewTable(m.TableId("io_req_sz"), m),
 		latency: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "bio", "req_latency"),
 			"A histogram of bio request latencies in microseconds.",
@@ -99,11 +96,11 @@ func (e *exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 	}
 
-	emit(e.latency, decodeTable(e.readLat, latTableLen), "read")
-	emit(e.latency, decodeTable(e.writeLat, latTableLen), "write")
+	emit(e.latency, decodeTable(e.ioLat, 0, latTableLen), "read")
+	emit(e.latency, decodeTable(e.ioLat, 1, latTableLen), "write")
 
-	emit(e.reqSize, decodeTable(e.readReqSz, reqSzTableLen), "read")
-	emit(e.reqSize, decodeTable(e.writeReqSz, reqSzTableLen), "write")
+	emit(e.reqSize, decodeTable(e.ioReqSz, 0, reqSzTableLen), "read")
+	emit(e.reqSize, decodeTable(e.ioReqSz, 1, reqSzTableLen), "write")
 }
 
 func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -112,32 +109,36 @@ func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 }
 
 // parseKey parses a BPF hash key as created by the BPF program. For example:
-// `{ "sda" 0xb }` is the key for the 11th bucket for device "sda".
-func parseKey(s string) (string, uint64) {
+// `{ "sda" 0x1 0xb }` is the key for the 11th bucket for a write operation on device "sda".
+func parseKey(s string) (string, uint64, uint64) {
 	fields := strings.Fields(strings.Trim(s, "{ }"))
-	label := strings.Trim(fields[0], "\"")
-	bucket, _ := strconv.ParseUint(fields[1], 0, 64)
-	return label, bucket
+	devName := strings.Trim(fields[0], "\"")
+	reqOp, _ := strconv.ParseUint(fields[1], 0, 64)
+	bucket, _ := strconv.ParseUint(fields[2], 0, 64)
+	return devName, reqOp, bucket
 }
 
 // decodeTable decodes a BPF table and returns a per-device map of values as ordered buckets.
-func decodeTable(table *bcc.Table, tableSize uint) map[string][]uint64 {
+func decodeTable(table *bcc.Table, reqOp uint64, tableSize uint) map[string][]uint64 {
 	devBuckets := make(map[string][]uint64)
 
 	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
 	// preserving slice.
 	for entry := range table.Iter() {
-		devName, bucket := parseKey(entry.Key)
+		devName, op, bucket := parseKey(entry.Key)
 
-		// First time seeing this device, create slice for buckets
-		if _, ok := devBuckets[devName]; !ok {
-			devBuckets[devName] = make([]uint64, tableSize)
-		}
+		if op == reqOp {
+			// First time seeing this device, create slice for buckets
+			if _, ok := devBuckets[devName]; !ok {
+				devBuckets[devName] = make([]uint64, tableSize)
+			}
 
-		// entry.Value is a hexadecimal string, e.g., 0x1f3
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-			// FIXME? Possibly hitting "index out of range" if bucket > (tableSize - 1)
-			devBuckets[devName][bucket] = value
+			// entry.Value is a hexadecimal string, e.g., 0x1f3
+			if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+				// FIXME? Possibly hitting "index out of range" if bucket > (tableSize - 1)
+				devBuckets[devName][bucket] = value
+			}
+
 		}
 	}
 

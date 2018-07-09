@@ -22,19 +22,18 @@ const bpfSource string = `
 
 typedef struct disk_key {
 	char disk[DISK_NAME_LEN];
+	u8 req_op;
 	u64 slot;
 } disk_key_t;
 
 // Hash to temporily hold the start time of each bio request
 BPF_HASH(start, struct request *);
 
-// Histograms to separately record latencies of read / write requests
-BPF_HISTOGRAM(read_lat, disk_key_t, 32);
-BPF_HISTOGRAM(write_lat, disk_key_t, 32);
+// Histogram to record IO request latencies
+BPF_HISTOGRAM(io_lat, disk_key_t, 32);
 
-// Histograms to separately record sizes of read / write requests
-BPF_HISTOGRAM(read_req_sz, disk_key_t, 16);
-BPF_HISTOGRAM(write_req_sz, disk_key_t, 16);
+// Histogram to record IO request sizes
+BPF_HISTOGRAM(io_req_sz, disk_key_t, 16);
 
 // Record start time of a request
 int trace_req_start(struct pt_regs *ctx, struct request *req)
@@ -48,6 +47,7 @@ int trace_req_start(struct pt_regs *ctx, struct request *req)
 int trace_req_completion(struct pt_regs *ctx, struct request *req, unsigned int bytes)
 {
 	u64 *tsp, delta;
+	u8 req_op;
 
 	// Fetch timestamp and calculate delta
 	tsp = start.lookup(&req);
@@ -59,21 +59,19 @@ int trace_req_completion(struct pt_regs *ctx, struct request *req, unsigned int 
 	// Convert to microseconds
 	delta /= 1000;
 
+	// Request operation, e.g. REQ_OP_READ, REQ_OP_WRITE, etc.
+	req_op = req->cmd_flags & REQ_OP_MASK;
+
 	// Latency histogram key
-	disk_key_t lat_key = {.slot = bpf_log2l(delta)};
+	disk_key_t lat_key = {.slot = bpf_log2l(delta), .req_op = req_op};
 	bpf_probe_read(&lat_key.disk, sizeof(lat_key.disk), req->rq_disk->disk_name);
 
 	// Request size histogram key
-	disk_key_t req_sz_key = {.slot = bpf_log2(bytes / 1024)};
+	disk_key_t req_sz_key = {.slot = bpf_log2(bytes / 1024), .req_op = req_op};
 	bpf_probe_read(&req_sz_key.disk, sizeof(req_sz_key.disk), req->rq_disk->disk_name);
 
-	if ((req->cmd_flags & REQ_OP_MASK) == REQ_OP_WRITE) {
-		write_lat.increment(lat_key);
-		write_req_sz.increment(req_sz_key);
-	} else {
-		read_lat.increment(lat_key);
-		read_req_sz.increment(req_sz_key);
-	}
+	io_lat.increment(lat_key);
+	io_req_sz.increment(req_sz_key);
 
 	start.delete(&req);
 	return 0;

@@ -56,8 +56,8 @@ func main() {
 	defer m.Close()
 
 	// Map of kprobe names from our BPF program to kernel function names, to which to attach.
-	kprobes := map[string]string {
-		"trace_req_start": "blk_account_io_start",
+	kprobes := map[string]string{
+		"trace_req_start":      "blk_account_io_start",
 		"trace_req_completion": "blk_account_io_completion",
 	}
 
