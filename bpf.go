@@ -21,10 +21,10 @@ const bpfSource string = `
 #include <linux/blk_types.h>
 
 typedef struct disk_key {
-	char disk[DISK_NAME_LEN];		// 32 bytes
+	char disk[DISK_NAME_LEN];	// 32 bytes
 	u8 req_op;
 	u64 slot;
-} disk_key_t;						// 48 bytes, with padding
+} disk_key_t;				// 48 bytes, with padding
 
 const u8 max_io_lat_slot = 28;		// log2 range 1 us to ~2 mins
 const u8 max_io_req_sz_slot = 16;	// log2 range 1 KiB to 32 MiB
