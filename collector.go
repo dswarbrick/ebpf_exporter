@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	latTableLen   = 32 // Must match size of read_lat / write_lat tables in BPF program
+	latTableLen   = 28 // Must match size of io_lat table in BPF program
 	reqSzTableLen = 16 // Must match size of read_req_sz / write_req_sz tables in BPF program
 
 	// Linux req_opf enums, cf. linux/blk_types.h

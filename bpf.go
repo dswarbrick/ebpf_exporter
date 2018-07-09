@@ -30,7 +30,7 @@ typedef struct disk_key {
 BPF_HASH(start, struct request *);
 
 // Histogram to record IO request latencies
-BPF_HISTOGRAM(io_lat, disk_key_t, 32);
+BPF_HISTOGRAM(io_lat, disk_key_t, 28);
 
 // Histogram to record IO request sizes
 BPF_HISTOGRAM(io_req_sz, disk_key_t, 16);
