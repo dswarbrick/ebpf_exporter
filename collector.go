@@ -18,7 +18,6 @@
 package main
 
 import (
-	_ "fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -31,6 +30,34 @@ import (
 const (
 	latTableLen   = 32 // Must match size of read_lat / write_lat tables in BPF program
 	reqSzTableLen = 16 // Must match size of read_req_sz / write_req_sz tables in BPF program
+
+	// Linux req_opf enums, cf. linux/blk_types.h
+	REQ_OP_READ         = 0
+	REQ_OP_WRITE        = 1
+	REQ_OP_FLUSH        = 2
+	REQ_OP_DISCARD      = 3
+	REQ_OP_ZONE_REPORT  = 4
+	REQ_OP_SECURE_ERASE = 5
+	REQ_OP_ZONE_RESET   = 6
+	REQ_OP_WRITE_SAME   = 7
+	REQ_OP_WRITE_ZEROES = 9
+	REQ_OP_SCSI_IN      = 32
+	REQ_OP_SCSI_OUT     = 33
+	REQ_OP_DRV_IN       = 34
+	REQ_OP_DRV_OUT      = 35
+)
+
+var (
+	// Map of request operation enums to human-readable strings. This map does not include all
+	// possible request operations, but covers the most commonly observed ones.
+	reqOpStrings = map[uint8]string{
+		REQ_OP_READ:         "read",
+		REQ_OP_WRITE:        "write",
+		REQ_OP_FLUSH:        "flush",
+		REQ_OP_DISCARD:      "discard",
+		REQ_OP_WRITE_SAME:   "write_same",
+		REQ_OP_WRITE_ZEROES: "write_zeroes",
+	}
 )
 
 type exporter struct {
@@ -64,43 +91,47 @@ func newExporter(m *bcc.Module) *exporter {
 }
 
 func (e *exporter) Collect(ch chan<- prometheus.Metric) {
-	emit := func(hist *prometheus.Desc, devBuckets map[string][]uint64, reqOp string) {
-		for devName, bpfBuckets := range devBuckets {
-			var (
-				count uint64
-				sum   float64
-			)
+	emit := func(hist *prometheus.Desc, devBuckets map[string]map[uint8][]uint64) {
+		for devName, reqs := range devBuckets {
+			for reqOp, bpfBuckets := range reqs {
+				var (
+					count uint64
+					sum   float64
+				)
 
-			promBuckets := make(map[float64]uint64)
+				// Skip unrecognized request operations.
+				if _, ok := reqOpStrings[reqOp]; !ok {
+					continue
+				}
 
-			for k, v := range bpfBuckets {
-				// Prometheus histograms are cumulative, so count must be a running total of
-				// previous buckets also.
-				count += v
+				promBuckets := make(map[float64]uint64)
 
-				// Sum will not be completely accurate, since the BPF program already discarded
-				// some resolution when storing occurrences of values in log2 buckets. Count and
-				// sum are required however to calculate an average from a histogram.
-				exp2 := math.Exp2(float64(k))
-				sum += exp2 * float64(v)
+				for k, v := range bpfBuckets {
+					// Prometheus histograms are cumulative, so count must be a running total of
+					// previous buckets also.
+					count += v
 
-				promBuckets[exp2] = count
+					// Sum will not be completely accurate, since the BPF program already discarded
+					// some resolution when storing occurrences of values in log2 buckets. Count and
+					// sum are required however to calculate an average from a histogram.
+					exp2 := math.Exp2(float64(k))
+					sum += exp2 * float64(v)
+
+					promBuckets[exp2] = count
+				}
+
+				ch <- prometheus.MustNewConstHistogram(hist,
+					count,
+					sum,
+					promBuckets,
+					devName, reqOpStrings[reqOp],
+				)
 			}
-
-			ch <- prometheus.MustNewConstHistogram(hist,
-				count,
-				sum,
-				promBuckets,
-				devName, reqOp,
-			)
 		}
 	}
 
-	emit(e.latency, decodeTable(e.ioLat, 0, latTableLen), "read")
-	emit(e.latency, decodeTable(e.ioLat, 1, latTableLen), "write")
-
-	emit(e.reqSize, decodeTable(e.ioReqSz, 0, reqSzTableLen), "read")
-	emit(e.reqSize, decodeTable(e.ioReqSz, 1, reqSzTableLen), "write")
+	emit(e.latency, decodeTable(e.ioLat, latTableLen))
+	emit(e.reqSize, decodeTable(e.ioReqSz, reqSzTableLen))
 }
 
 func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -110,35 +141,37 @@ func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 
 // parseKey parses a BPF hash key as created by the BPF program. For example:
 // `{ "sda" 0x1 0xb }` is the key for the 11th bucket for a write operation on device "sda".
-func parseKey(s string) (string, uint64, uint64) {
+func parseKey(s string) (string, uint8, uint64) {
 	fields := strings.Fields(strings.Trim(s, "{ }"))
 	devName := strings.Trim(fields[0], "\"")
 	reqOp, _ := strconv.ParseUint(fields[1], 0, 64)
 	bucket, _ := strconv.ParseUint(fields[2], 0, 64)
-	return devName, reqOp, bucket
+	return devName, uint8(reqOp), bucket
 }
 
 // decodeTable decodes a BPF table and returns a per-device map of values as ordered buckets.
-func decodeTable(table *bcc.Table, reqOp uint64, tableSize uint) map[string][]uint64 {
-	devBuckets := make(map[string][]uint64)
+func decodeTable(table *bcc.Table, tableSize uint) map[string]map[uint8][]uint64 {
+	devBuckets := make(map[string]map[uint8][]uint64)
 
 	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
 	// preserving slice.
 	for entry := range table.Iter() {
 		devName, op, bucket := parseKey(entry.Key)
 
-		if op == reqOp {
-			// First time seeing this device, create slice for buckets
-			if _, ok := devBuckets[devName]; !ok {
-				devBuckets[devName] = make([]uint64, tableSize)
-			}
+		// First time seeing this device, create map for request operations
+		if _, ok := devBuckets[devName]; !ok {
+			devBuckets[devName] = make(map[uint8][]uint64)
+		}
 
-			// entry.Value is a hexadecimal string, e.g., 0x1f3
-			if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
-				// FIXME? Possibly hitting "index out of range" if bucket > (tableSize - 1)
-				devBuckets[devName][bucket] = value
-			}
+		// First time seeing this req op for this device, create slice for buckets
+		if _, ok := devBuckets[devName][op]; !ok {
+			devBuckets[devName][op] = make([]uint64, tableSize)
+		}
 
+		// entry.Value is a hexadecimal string, e.g., 0x1f3
+		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+			// FIXME? Possibly hitting "index out of range" if bucket > (tableSize - 1)
+			devBuckets[devName][op][bucket] = value
 		}
 	}
 
