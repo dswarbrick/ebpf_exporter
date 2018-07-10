@@ -2,7 +2,7 @@ Source: prometheus-ebpf-exporter
 Section: net
 Priority: optional
 Maintainer: Daniel Swarbrick <dswarbrick@users.noreply.github.com>
-Build-Depends: debhelper (>=10),
+Build-Depends: debhelper (>= 10),
                dh-golang,
                dh-systemd,
                golang-go,
@@ -11,7 +11,7 @@ Build-Depends: debhelper (>=10),
                golang-github-prometheus-client-model-dev,
                golang-github-prometheus-common-dev (>= 0+git20171117),
                golang-gopkg-alecthomas-kingpin.v2-dev,
-               libbpfcc-dev
+               libbpfcc-dev (>= 0.6.0)
 Standards-Version: 4.1.2
 Homepage: https://github.com/dswarbrick/ebpf_exporter
 Vcs-Browser: https://github.com/dswarbrick/ebpf_exporter
@@ -21,7 +21,7 @@ Package: prometheus-ebpf-exporter
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libbpfcc
+         libbpfcc (>= 0.6.0)
 Built-Using: ${misc:Built-Using}
 Description: Prometheus exporter which uses eBPF kprobes
  ebpf_exporter is an experimental Prometheus exporter which uses eBPF kprobes
