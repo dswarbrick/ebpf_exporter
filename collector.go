@@ -23,13 +23,12 @@ import (
 	"strings"
 
 	"github.com/iovisor/gobpf/bcc"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
-	latTableLen   = 28 // Must match size of io_lat table in BPF program.
-	reqSzTableLen = 16 // Must match size of io_req_sz table in BPF program.
+	latTableLen   = 28 // Must match max_io_lat_slot in BPF program.
+	reqSzTableLen = 16 // Must match max_io_req_sz_slot in BPF program.
 
 	// Linux req_opf enums, cf. linux/blk_types.h
 	REQ_OP_READ         = 0
