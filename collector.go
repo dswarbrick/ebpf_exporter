@@ -61,11 +61,12 @@ var (
 )
 
 type exporter struct {
-	bpfMod  *bcc.Module
-	ioLat   *bcc.Table
-	ioReqSz *bcc.Table
-	latency *prometheus.Desc
-	reqSize *prometheus.Desc
+	bpfMod       *bcc.Module
+	ioLat        *bcc.Table
+	ioReqSz      *bcc.Table
+	latency      *prometheus.Desc
+	reqSize      *prometheus.Desc
+	tableEntries *prometheus.GaugeVec
 }
 
 func newExporter(m *bcc.Module) *exporter {
@@ -85,54 +86,35 @@ func newExporter(m *bcc.Module) *exporter {
 			[]string{"device", "operation"},
 			nil,
 		),
+		tableEntries: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Subsystem: "bio",
+				Name:      "bpf_table_entries",
+				Help:      "The number of BPF table entries used.",
+			},
+			[]string{"table"},
+		),
 	}
+
+	prometheus.MustRegister(e.tableEntries)
 
 	return &e
 }
 
 func (e *exporter) Collect(ch chan<- prometheus.Metric) {
-	emit := func(hist *prometheus.Desc, devBuckets map[string]map[uint8][]uint64) {
-		for devName, reqs := range devBuckets {
-			for reqOp, bpfBuckets := range reqs {
-				var (
-					count uint64
-					sum   float64
-				)
+	var (
+		n   uint
+		tbl map[string]map[uint8][]uint64
+	)
 
-				// Skip unrecognized request operations.
-				if _, ok := reqOpStrings[reqOp]; !ok {
-					continue
-				}
+	n, tbl = decodeTable(e.ioLat, latTableLen)
+	e.tableEntries.WithLabelValues("req_latency").Set(float64(n))
+	e.emit(ch, e.latency, tbl)
 
-				promBuckets := make(map[float64]uint64)
-
-				for k, v := range bpfBuckets {
-					// Prometheus histograms are cumulative, so count must be a running total of
-					// previous buckets also.
-					count += v
-
-					// Sum will not be completely accurate, since the BPF program already discarded
-					// some resolution when storing occurrences of values in log2 buckets. Count and
-					// sum are required however to calculate an average from a histogram.
-					exp2 := math.Exp2(float64(k))
-					sum += exp2 * float64(v)
-
-					promBuckets[exp2] = count
-				}
-
-				ch <- prometheus.MustNewConstHistogram(hist,
-					count,
-					sum,
-					promBuckets,
-					devName, reqOpStrings[reqOp],
-				)
-			}
-		}
-	}
-
-	// TODO: Expose table entry count as a Prometheus metric.
-	emit(e.latency, decodeTable(e.ioLat, latTableLen))
-	emit(e.reqSize, decodeTable(e.ioReqSz, reqSzTableLen))
+	n, tbl = decodeTable(e.ioReqSz, reqSzTableLen)
+	e.tableEntries.WithLabelValues("req_size").Set(float64(n))
+	e.emit(ch, e.reqSize, tbl)
 }
 
 func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
@@ -140,18 +122,49 @@ func (e *exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.reqSize
 }
 
-// parseKey parses a BPF hash key as created by the BPF program. For example:
-// `{ "sda" 0x1 0xb }` is the key for the 11th bucket for a write operation on device "sda".
-func parseKey(s string) (string, uint8, uint64) {
-	fields := strings.Fields(strings.Trim(s, "{ }"))
-	devName := strings.Trim(fields[0], "\"")
-	reqOp, _ := strconv.ParseUint(fields[1], 0, 64)
-	bucket, _ := strconv.ParseUint(fields[2], 0, 64)
-	return devName, uint8(reqOp), bucket
+func (e *exporter) emit(ch chan<- prometheus.Metric, hist *prometheus.Desc, devBuckets map[string]map[uint8][]uint64) {
+	for devName, reqs := range devBuckets {
+		for reqOp, bpfBuckets := range reqs {
+			var (
+				count uint64
+				sum   float64
+			)
+
+			// Skip unrecognized request operations.
+			if _, ok := reqOpStrings[reqOp]; !ok {
+				continue
+			}
+
+			promBuckets := make(map[float64]uint64)
+
+			for k, v := range bpfBuckets {
+				// Prometheus histograms are cumulative, so count must be a running total of
+				// previous buckets also.
+				count += v
+
+				// Sum will not be completely accurate, since the BPF program already discarded
+				// some resolution when storing occurrences of values in log2 buckets. Count and
+				// sum are required however to calculate an average from a histogram.
+				exp2 := math.Exp2(float64(k))
+				sum += exp2 * float64(v)
+
+				promBuckets[exp2] = count
+			}
+
+			ch <- prometheus.MustNewConstHistogram(hist,
+				count,
+				sum,
+				promBuckets,
+				devName, reqOpStrings[reqOp],
+			)
+		}
+	}
 }
 
 // decodeTable decodes a BPF table and returns a per-device map of values as ordered buckets.
-func decodeTable(table *bcc.Table, tableSize uint) map[string]map[uint8][]uint64 {
+func decodeTable(table *bcc.Table, tableSize uint) (uint, map[string]map[uint8][]uint64) {
+	var numEntries uint
+
 	devBuckets := make(map[string]map[uint8][]uint64)
 
 	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
@@ -173,7 +186,19 @@ func decodeTable(table *bcc.Table, tableSize uint) map[string]map[uint8][]uint64
 		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
 			devBuckets[devName][op][bucket] = value
 		}
+
+		numEntries++
 	}
 
-	return devBuckets
+	return numEntries, devBuckets
+}
+
+// parseKey parses a BPF hash key as created by the BPF program. For example:
+// `{ "sda" 0x1 0xb }` is the key for the 11th bucket for a write operation on device "sda".
+func parseKey(s string) (string, uint8, uint64) {
+	fields := strings.Fields(strings.Trim(s, "{ }"))
+	devName := strings.Trim(fields[0], "\"")
+	reqOp, _ := strconv.ParseUint(fields[1], 0, 64)
+	bucket, _ := strconv.ParseUint(fields[2], 0, 64)
+	return devName, uint8(reqOp), bucket
 }
