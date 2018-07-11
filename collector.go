@@ -18,9 +18,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"math"
-	"strconv"
-	"strings"
 
 	"github.com/iovisor/gobpf/bcc"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,7 +30,10 @@ const (
 	latTableLen   = 28 // Must match max_io_lat_slot in BPF program.
 	reqSzTableLen = 16 // Must match max_io_req_sz_slot in BPF program.
 
-	// Linux req_opf enums, cf. linux/blk_types.h
+	// cf. <linux/genhd.h>
+	DISK_NAME_LEN = 32
+
+	// Linux req_opf enums, cf. <linux/blk_types.h>
 	REQ_OP_READ         = 0
 	REQ_OP_WRITE        = 1
 	REQ_OP_FLUSH        = 2
@@ -162,45 +165,43 @@ func (e *exporter) emit(ch chan<- prometheus.Metric, hist *prometheus.Desc, devB
 
 // decodeTable decodes a BPF table and returns a per-device map of values as ordered buckets.
 func decodeTable(table *bcc.Table, tableSize uint) (uint, map[string]map[uint8][]uint64) {
-	var numEntries uint
+	var (
+		numEntries uint
+
+		// Struct must match disk_key_t in BPF program
+		key struct {
+			Disk [DISK_NAME_LEN]byte
+			Op   uint8
+			_    [7]byte // padding
+			Slot uint64
+		}
+	)
 
 	devBuckets := make(map[string]map[uint8][]uint64)
 
 	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
 	// preserving slice.
 	for it := table.Iter(); it.Next(); {
-		keyStr, _ := table.KeyBytesToStr(it.Key())
-		devName, op, bucket := parseKey(keyStr)
+		if err := binary.Read(bytes.NewReader(it.Key()), binary.LittleEndian, &key); err != nil {
+			continue
+		}
 
-		// First time seeing this device, create map for request operations
+		// key.Disk is a null-terminated char array.
+		devName := string(key.Disk[:bytes.IndexByte(key.Disk[:], 0)])
+
+		// First time seeing this device, create map for request operations.
 		if _, ok := devBuckets[devName]; !ok {
 			devBuckets[devName] = make(map[uint8][]uint64)
 		}
 
-		// First time seeing this req op for this device, create slice for buckets
-		if _, ok := devBuckets[devName][op]; !ok {
-			devBuckets[devName][op] = make([]uint64, tableSize)
+		// First time seeing this req op for this device, create slice for buckets.
+		if _, ok := devBuckets[devName][key.Op]; !ok {
+			devBuckets[devName][key.Op] = make([]uint64, tableSize)
 		}
 
-		valueStr, _ := table.LeafBytesToStr(it.Leaf())
-
-		// entry.Value is a hexadecimal string, e.g., 0x1f3
-		if value, err := strconv.ParseUint(valueStr, 0, 64); err == nil {
-			devBuckets[devName][op][bucket] = value
-		}
-
+		devBuckets[devName][key.Op][key.Slot] = binary.LittleEndian.Uint64(it.Leaf())
 		numEntries++
 	}
 
 	return numEntries, devBuckets
-}
-
-// parseKey parses a BPF hash key as created by the BPF program. For example:
-// `{ "sda" 0x1 0xb }` is the key for the 11th bucket for a write operation on device "sda".
-func parseKey(s string) (string, uint8, uint64) {
-	fields := strings.Fields(strings.Trim(s, "{ }"))
-	devName := strings.Trim(fields[0], "\"")
-	reqOp, _ := strconv.ParseUint(fields[1], 0, 64)
-	bucket, _ := strconv.ParseUint(fields[2], 0, 64)
-	return devName, uint8(reqOp), bucket
 }
