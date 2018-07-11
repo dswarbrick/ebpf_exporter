@@ -168,8 +168,9 @@ func decodeTable(table *bcc.Table, tableSize uint) (uint, map[string]map[uint8][
 
 	// bcc.Table.Iter() returns unsorted entries, so write the decoded values into an order-
 	// preserving slice.
-	for entry := range table.Iter() {
-		devName, op, bucket := parseKey(entry.Key)
+	for it := table.Iter(); it.Next(); {
+		keyStr, _ := table.KeyBytesToStr(it.Key())
+		devName, op, bucket := parseKey(keyStr)
 
 		// First time seeing this device, create map for request operations
 		if _, ok := devBuckets[devName]; !ok {
@@ -181,8 +182,10 @@ func decodeTable(table *bcc.Table, tableSize uint) (uint, map[string]map[uint8][
 			devBuckets[devName][op] = make([]uint64, tableSize)
 		}
 
+		valueStr, _ := table.LeafBytesToStr(it.Leaf())
+
 		// entry.Value is a hexadecimal string, e.g., 0x1f3
-		if value, err := strconv.ParseUint(entry.Value, 0, 64); err == nil {
+		if value, err := strconv.ParseUint(valueStr, 0, 64); err == nil {
 			devBuckets[devName][op][bucket] = value
 		}
 
