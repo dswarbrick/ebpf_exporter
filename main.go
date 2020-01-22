@@ -39,13 +39,13 @@ var (
 )
 
 func main() {
-	allowedLevel := promlog.AllowedLevel{}
-	flag.AddFlags(kingpin.CommandLine, &allowedLevel)
+	promlogConfig := &promlog.Config{}
+	flag.AddFlags(kingpin.CommandLine, promlogConfig)
 	kingpin.Version(version.Print("ebpf_exporter"))
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	logger := promlog.New(allowedLevel)
+	logger := promlog.New(promlogConfig)
 
 	level.Info(logger).Log("msg", "Starting ebpf_exporter", "version", version.Info())
 	level.Info(logger).Log("msg", "Build context", version.BuildContext())
