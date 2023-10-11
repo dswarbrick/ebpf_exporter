@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // ebpf_exporter - A Prometheus exporter for Linux block IO statistics.
@@ -22,6 +23,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/kit/log/level"
 	"github.com/iovisor/gobpf/bcc"
 	"github.com/prometheus/client_golang/prometheus"
@@ -29,7 +31,6 @@ import (
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/common/promlog/flag"
 	"github.com/prometheus/common/version"
-	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const namespace = "ebpf"
@@ -63,7 +64,7 @@ func main() {
 	// Load kprobes and attach them to kernel functions
 	for kpName, fnName := range kprobes {
 		if kp, err := m.LoadKprobe(kpName); err == nil {
-			if err := m.AttachKprobe(fnName, kp); err != nil {
+			if err := m.AttachKprobe(fnName, kp, 10); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to attach %q to %q: %s\n", kpName, fnName, err)
 				os.Exit(1)
 			}
