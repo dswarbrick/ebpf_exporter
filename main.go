@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // ebpf_exporter - A Prometheus exporter for Linux block IO statistics.
@@ -22,33 +23,31 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/go-kit/kit/log/level"
 	"github.com/iovisor/gobpf/bcc"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/promlog"
-	"github.com/prometheus/common/promlog/flag"
+	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/common/promslog/flag"
 	"github.com/prometheus/common/version"
+	"github.com/prometheus/exporter-toolkit/web"
+	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const namespace = "ebpf"
 
-var (
-	listenAddress = kingpin.Flag("web.listen-address", "The address to listen on for HTTP requests.").Default(":9123").String()
-)
-
 func main() {
-	promlogConfig := &promlog.Config{}
+	toolkitFlags := kingpinflag.AddFlags(kingpin.CommandLine, ":9123")
+	promlogConfig := &promslog.Config{}
 	flag.AddFlags(kingpin.CommandLine, promlogConfig)
 	kingpin.Version(version.Print("ebpf_exporter"))
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	logger := promlog.New(promlogConfig)
+	logger := promslog.New(promlogConfig)
 
-	level.Info(logger).Log("msg", "Starting ebpf_exporter", "version", version.Info())
-	level.Info(logger).Log("msg", "Build context", version.BuildContext())
+	logger.Info("Starting ebpf_exporter", "version", version.Info())
+	logger.Info("Build context", version.BuildContext())
 
 	// Compile BPF code and return new module
 	m := bcc.NewModule(bpfSource, []string{})
@@ -63,7 +62,7 @@ func main() {
 	// Load kprobes and attach them to kernel functions
 	for kpName, fnName := range kprobes {
 		if kp, err := m.LoadKprobe(kpName); err == nil {
-			if err := m.AttachKprobe(fnName, kp); err != nil {
+			if err := m.AttachKprobe(fnName, kp, 10); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to attach %q to %q: %s\n", kpName, fnName, err)
 				os.Exit(1)
 			}
@@ -75,24 +74,28 @@ func main() {
 
 	prometheus.MustRegister(newExporter(m))
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html>
-	<head>
-	<title>eBPF Exporter</title>
-	<style>html { font-family: sans-serif; }</style>
-	</head>
-	<body>
-	<h1>eBPF Exporter</h1>
-	<p><a href="/metrics">Metrics</a></p>
-	</body>
-</html>`))
-	})
+	landingConfig := web.LandingConfig{
+		Name:        "eBPF Exporter",
+		Description: "eBPF Exporter",
+		Version:     version.Info(),
+		Links: []web.LandingLinks{
+			{
+				Address: "/metrics",
+				Text:    "Metrics",
+			},
+		},
+	}
+	landingPage, err := web.NewLandingPage(landingConfig)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	http.Handle("/", landingPage)
 	http.Handle("/metrics", promhttp.Handler())
 
-	level.Info(logger).Log("msg", "Listening on address", "address", *listenAddress)
-	if err := http.ListenAndServe(*listenAddress, nil); err != nil {
-		level.Error(logger).Log("msg", "Error starting HTTP server", "err", err)
+	server := &http.Server{}
+	if err := web.ListenAndServe(server, toolkitFlags, logger); err != nil {
+		logger.Error(err.Error())
 		os.Exit(1)
 	}
 }
